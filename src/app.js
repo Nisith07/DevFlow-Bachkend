@@ -45,6 +45,14 @@ export function createApp(googleEnabled) {
   app.use('/api/v1/analytics', analyticsRoutes)
   app.use('/api/v1/ai', aiRoutes)
 
+  app.get("/", (req, res) => {
+    res.json({
+      success: true,
+      message: "DevFlow Backend API is running 🚀",
+      version: "v1"
+    });
+  });
+
   app.use(notFound)
   app.use(errorHandler)
   return app
