@@ -21,7 +21,10 @@ export function createApp(googleEnabled) {
   const app = express()
   app.locals.googleEnabled = googleEnabled
   app.use(helmet())
-  app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }))
+  const allowedOrigins = process.env.NODE_ENV === 'development'
+    ? [process.env.CLIENT_URL, 'http://localhost:5173', 'http://localhost:5174'].filter(Boolean)
+    : process.env.CLIENT_URL
+  app.use(cors({ origin: allowedOrigins, credentials: true }))
   app.use(express.json({ limit: '16kb' }))
   app.use(cookieParser())
   app.use(requestId)
