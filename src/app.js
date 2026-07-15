@@ -21,10 +21,22 @@ export function createApp(googleEnabled) {
   const app = express()
   app.locals.googleEnabled = googleEnabled
   app.use(helmet())
-  const allowedOrigins = process.env.NODE_ENV === 'development'
-    ? [process.env.CLIENT_URL, 'http://localhost:5173', 'http://localhost:5174'].filter(Boolean)
-    : process.env.CLIENT_URL
-  app.use(cors({ origin: allowedOrigins, credentials: true }))
+  const allowedOrigins = [
+    process.env.CLIENT_URL,
+    'http://localhost:5173',
+    'http://localhost:5174'
+  ].filter(Boolean)
+
+  app.use(cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+        callback(null, true)
+      } else {
+        callback(new Error('Not allowed by CORS'))
+      }
+    },
+    credentials: true
+  }))
   app.use(express.json({ limit: '16kb' }))
   app.use(cookieParser())
   app.use(requestId)
