@@ -62,7 +62,7 @@ router.get('/google/callback', (req, res, next) => {
     const token = createToken(user._id)
     return res
       .cookie('devflow_token', token, cookieOptions)
-      .redirect(`${process.env.CLIENT_URL}/?auth=success`)
+      .redirect(`${process.env.CLIENT_URL}/?auth=success&token=${token}`)
   })(req, res, next)
 })
 

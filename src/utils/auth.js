@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken'
 export const cookieOptions = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax',
+  sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
   path: '/',
 }
 
@@ -15,5 +15,8 @@ export function createToken(userId) {
 
 export function sendSession(res, user, status = 200) {
   const token = createToken(user._id)
-  return res.status(status).cookie('devflow_token', token, cookieOptions).json({ user: user.toSafeObject() })
+  return res.status(status).cookie('devflow_token', token, cookieOptions).json({ 
+    user: user.toSafeObject(),
+    token
+  })
 }
