@@ -6,6 +6,7 @@ import {
   updateTask,
   deleteTask,
   completeTask,
+  reorderTasks,
   addSubtask,
   updateSubtask,
   deleteSubtask,
@@ -19,6 +20,7 @@ router.use(requireAuth)
 
 router.get('/', getTasks)
 router.post('/', createTask)
+router.patch('/reorder', reorderTasks) // Must be before /:id
 router.get('/:id', getTask)
 router.patch('/:id', updateTask)
 router.delete('/:id', deleteTask)

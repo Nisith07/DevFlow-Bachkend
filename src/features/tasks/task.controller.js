@@ -229,6 +229,32 @@ export async function deleteTask(req, res, next) {
   }
 }
 
+export async function reorderTasks(req, res, next) {
+  try {
+    const owner = req.user._id
+    const { updates } = req.body // Array of { id, status, boardPosition }
+
+    if (!Array.isArray(updates)) {
+      return res.status(400).json({ message: 'Updates must be an array.' })
+    }
+
+    const bulkOps = updates.map(u => ({
+      updateOne: {
+        filter: { _id: u.id, owner },
+        update: { $set: { status: u.status, boardPosition: u.boardPosition } },
+      },
+    }))
+
+    if (bulkOps.length > 0) {
+      await Task.bulkWrite(bulkOps)
+    }
+
+    return res.json({ message: 'Tasks reordered successfully.' })
+  } catch (error) {
+    return next(error)
+  }
+}
+
 // Subtasks endpoints
 export async function addSubtask(req, res, next) {
   try {

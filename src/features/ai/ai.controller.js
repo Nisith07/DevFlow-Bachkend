@@ -315,3 +315,31 @@ Ensure your response is in markdown. If actions are generated, write the action 
     return next(error)
   }
 }
+
+export async function estimateTask(req, res, next) {
+  try {
+    const { title, description } = req.body
+    if (!title) {
+      return res.status(400).json({ message: 'Task title is required.' })
+    }
+
+    if (!aiClient) {
+      // Mock estimate if no AI client
+      return res.json({ data: { estimate: '2h' } })
+    }
+
+    const prompt = `You are an expert technical project manager. Estimate the time required for a developer to complete the following task. Respond ONLY with a concise time estimate (e.g. "2h", "30m", "1d").
+Task Title: ${title}
+Task Description: ${description || 'None'}`
+
+    const response = await aiClient.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    })
+
+    const estimateText = response.text ? response.text.trim() : '1h'
+    return res.json({ data: { estimate: estimateText } })
+  } catch (error) {
+    return next(error)
+  }
+}

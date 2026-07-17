@@ -79,6 +79,20 @@ const taskSchema = new mongoose.Schema(
     plannedDate: {
       type: Date,
     },
+    sprint: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    boardPosition: {
+      type: Number,
+      default: 0,
+    },
+    aiEstimate: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     subtasks: {
       type: [subtaskSchema],
       default: [],

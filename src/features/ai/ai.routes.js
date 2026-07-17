@@ -5,6 +5,7 @@ import {
   getConversation,
   deleteConversation,
   postMessage,
+  estimateTask,
 } from './ai.controller.js'
 import { requireAuth } from '../../middleware/requireAuth.js'
 
@@ -14,6 +15,7 @@ router.use(requireAuth)
 
 router.get('/', getConversations)
 router.post('/', createConversation)
+router.post('/estimate-task', estimateTask)
 router.get('/:id', getConversation)
 router.delete('/:id', deleteConversation)
 router.post('/:id/messages', postMessage)
