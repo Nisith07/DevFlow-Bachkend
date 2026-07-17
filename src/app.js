@@ -13,6 +13,8 @@ import noteRoutes from './features/notes/note.routes.js'
 import activityRoutes from './features/activity/activity.routes.js'
 import analyticsRoutes from './features/analytics/analytics.routes.js'
 import aiRoutes from './features/ai/ai.routes.js'
+import notificationRoutes from './features/notifications/notification.routes.js'
+import searchRoutes from './features/search/search.routes.js'
 import { requestId } from './middleware/requestId.js'
 import { notFound } from './middleware/notFound.js'
 import { errorHandler } from './middleware/errorHandler.js'
@@ -59,6 +61,8 @@ export function createApp(googleEnabled) {
   app.use('/api/v1/activity', activityRoutes)
   app.use('/api/v1/analytics', analyticsRoutes)
   app.use('/api/v1/ai', aiRoutes)
+  app.use('/api/v1/notifications', notificationRoutes)
+  app.use('/api/v1/search', searchRoutes)
 
   app.get("/", (req, res) => {
     res.json({
