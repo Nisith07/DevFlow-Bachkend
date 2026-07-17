@@ -45,6 +45,68 @@ const projectSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    techStack: {
+      type: [String],
+      default: [],
+    },
+    teamMembers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      }
+    ],
+    timeline: [
+      {
+        title: String,
+        date: Date,
+        status: {
+          type: String,
+          enum: ['pending', 'in_progress', 'completed'],
+          default: 'pending'
+        }
+      }
+    ],
+    roadmap: [
+      {
+        title: String,
+        status: {
+          type: String,
+          enum: ['planned', 'in_progress', 'done'],
+          default: 'planned'
+        }
+      }
+    ],
+    documentation: [
+      {
+        title: String,
+        url: String
+      }
+    ],
+    deployments: [
+      {
+        environment: String,
+        url: String,
+        status: {
+          type: String,
+          enum: ['success', 'failed', 'pending'],
+          default: 'success'
+        },
+        deployedAt: {
+          type: Date,
+          default: Date.now
+        }
+      }
+    ],
+    aiSummary: {
+      type: String,
+      default: ''
+    },
+    metrics: {
+      progress: { type: Number, default: 0 },
+      openIssues: { type: Number, default: 0 },
+      features: { type: Number, default: 0 },
+      lastUpdated: { type: Date, default: Date.now }
+    }
   },
   { timestamps: true }
 )

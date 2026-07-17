@@ -28,7 +28,10 @@ export async function getProjects(req, res, next) {
 export async function createProject(req, res, next) {
   try {
     const owner = req.user._id
-    const { name, description, color, icon, status, priority, dueDate, tags } = req.body
+    const {
+      name, description, color, icon, status, priority, dueDate, tags,
+      techStack, teamMembers, timeline, roadmap, documentation, deployments, aiSummary, metrics
+    } = req.body
 
     if (!name || typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ message: 'Project name is required.' })
@@ -47,6 +50,14 @@ export async function createProject(req, res, next) {
       priority: priority || 'medium',
       dueDate: dueDate ? new Date(dueDate) : undefined,
       tags: Array.isArray(tags) ? tags : [],
+      techStack: Array.isArray(techStack) ? techStack : [],
+      teamMembers: Array.isArray(teamMembers) ? teamMembers : [],
+      timeline: Array.isArray(timeline) ? timeline : [],
+      roadmap: Array.isArray(roadmap) ? roadmap : [],
+      documentation: Array.isArray(documentation) ? documentation : [],
+      deployments: Array.isArray(deployments) ? deployments : [],
+      aiSummary: typeof aiSummary === 'string' ? aiSummary : '',
+      metrics: metrics || { progress: 0, openIssues: 0, features: 0, lastUpdated: new Date() }
     })
 
     const responseObj = project.toObject()
@@ -94,7 +105,10 @@ export async function updateProject(req, res, next) {
   try {
     const owner = req.user._id
     const { id } = req.params
-    const { name, description, color, icon, status, priority, dueDate, tags } = req.body
+    const {
+      name, description, color, icon, status, priority, dueDate, tags,
+      techStack, teamMembers, timeline, roadmap, documentation, deployments, aiSummary, metrics
+    } = req.body
 
     const project = await Project.findOne({ _id: id, owner })
     if (!project) {
@@ -120,6 +134,14 @@ export async function updateProject(req, res, next) {
     if (priority !== undefined) project.priority = priority
     if (dueDate !== undefined) project.dueDate = dueDate ? new Date(dueDate) : null
     if (tags !== undefined) project.tags = Array.isArray(tags) ? tags : []
+    if (techStack !== undefined) project.techStack = Array.isArray(techStack) ? techStack : []
+    if (teamMembers !== undefined) project.teamMembers = Array.isArray(teamMembers) ? teamMembers : []
+    if (timeline !== undefined) project.timeline = Array.isArray(timeline) ? timeline : []
+    if (roadmap !== undefined) project.roadmap = Array.isArray(roadmap) ? roadmap : []
+    if (documentation !== undefined) project.documentation = Array.isArray(documentation) ? documentation : []
+    if (deployments !== undefined) project.deployments = Array.isArray(deployments) ? deployments : []
+    if (aiSummary !== undefined) project.aiSummary = typeof aiSummary === 'string' ? aiSummary : ''
+    if (metrics !== undefined) project.metrics = { ...project.metrics, ...metrics, lastUpdated: new Date() }
 
     await project.save()
 
