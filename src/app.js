@@ -21,6 +21,7 @@ import portfolioRoutes from './features/portfolio/portfolio.routes.js'
 import snippetRoutes from './features/snippets/snippet.routes.js'
 import integrationRoutes from './features/integrations/integration.routes.js'
 import searchRoutes from './features/search/search.routes.js'
+import deploymentRoutes from './features/deployments/deployment.routes.js'
 import { requestId } from './middleware/requestId.js'
 import { notFound } from './middleware/notFound.js'
 import { errorHandler } from './middleware/errorHandler.js'
@@ -75,6 +76,7 @@ export function createApp(googleEnabled) {
   app.use('/api/v1/portfolio', portfolioRoutes)
   app.use('/api/v1/snippets', snippetRoutes)
   app.use('/api/v1/integrations', integrationRoutes)
+  app.use('/api/v1/deployments', deploymentRoutes)
 
   app.get("/", (req, res) => {
     res.json({
