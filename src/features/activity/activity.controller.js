@@ -29,88 +29,89 @@ export async function recordActivity(opts) {
 export async function getActivity(req, res, next) {
   try {
     const owner = req.user._id
-    
-    let total = await Activity.countDocuments({ owner })
-    if (total === 0) {
-      // Seed 8 high-fidelity activity logs with offset timestamps
-      const now = new Date()
-      
+    const q = req.query.q || ''
+
+    let totalCount = await Activity.countDocuments({ owner })
+    if (totalCount === 0) {
+      // Seed high-fidelity activity logs with precise timestamps
+      const today = new Date()
+      const d1 = new Date(today); d1.setHours(9, 10, 0, 0);
+      const d2 = new Date(today); d2.setHours(10, 20, 0, 0);
+      const d3 = new Date(today); d3.setHours(11, 40, 0, 0);
+      const d4 = new Date(today); d4.setHours(12, 10, 0, 0);
+      const d5 = new Date(today); d5.setHours(14, 0, 0, 0);
+      const d6 = new Date(today); d6.setHours(15, 30, 0, 0);
+
       const seedActivities = [
         {
           owner,
           entityType: 'project',
           entityId: new mongoose.Types.ObjectId(),
           action: 'project_created',
-          summary: "Created Project 'DevFlow Dashboard Layout'",
-          createdAt: new Date(now.getTime() - 1000 * 60 * 15) // 15 mins ago
+          summary: "Created Project: DevFlow Dashboard Layout",
+          createdAt: d1
         },
         {
           owner,
           entityType: 'task',
           entityId: new mongoose.Types.ObjectId(),
           action: 'task_completed',
-          summary: "Completed Task 'Configure Mongoose connection pooling'",
-          createdAt: new Date(now.getTime() - 1000 * 60 * 45) // 45 mins ago
-        },
-        {
-          owner,
-          entityType: 'ai',
-          entityId: 'ai-stub-readme',
-          action: 'ai_readme_generated',
-          summary: "Generated README.md via AI Assistant",
-          createdAt: new Date(now.getTime() - 1000 * 60 * 60 * 3) // 3 hours ago
+          summary: "Completed Task: Configure theme context hooks",
+          createdAt: d2
         },
         {
           owner,
           entityType: 'github',
-          entityId: 'github-stub-commit',
+          entityId: 'github-pr-12',
           action: 'github_committed',
-          summary: "Committed Code to branch 'main' of 'Nisith/DevFlow-Backend'",
-          createdAt: new Date(now.getTime() - 1000 * 60 * 60 * 6) // 6 hours ago
+          summary: "Merged PR: Pull Request #12 'Integrate Slack notifications'",
+          createdAt: d3
         },
         {
           owner,
           entityType: 'portfolio',
-          entityId: 'portfolio-stub-deploy',
+          entityId: 'render-deploy-88',
           action: 'portfolio_deployed',
-          summary: "Deployment Success: Portfolio deployed to 'https://devflow.portfolio.pub/nisith'",
-          createdAt: new Date(now.getTime() - 1000 * 60 * 60 * 20) // 20 hours ago
+          summary: "Deployment Successful: DevFlow staging branch built and live",
+          createdAt: d4
         },
         {
           owner,
           entityType: 'ai',
-          entityId: 'ai-stub-comp',
+          entityId: 'ai-gen-express-api',
           action: 'ai_component_generated',
-          summary: "AI Generated Component 'KanbanBoard.jsx'",
-          createdAt: new Date(now.getTime() - 1000 * 60 * 60 * 26) // 26 hours ago (yesterday)
+          summary: "Generated API: AI Assistant generated controller endpoints for Express backend",
+          createdAt: d5
         },
         {
           owner,
-          entityType: 'project',
-          entityId: new mongoose.Types.ObjectId(),
-          action: 'team_joined',
-          summary: "Joined Team: Added member 'Sophia Chen' to Project 'DevFlow'",
-          createdAt: new Date(now.getTime() - 1000 * 60 * 60 * 48) // 2 days ago
-        },
-        {
-          owner,
-          entityType: 'issue',
-          entityId: new mongoose.Types.ObjectId(),
-          action: 'issue_created',
-          summary: "Created Issue: 'Vite build failure on lucide-react exports'",
-          createdAt: new Date(now.getTime() - 1000 * 60 * 60 * 72) // 3 days ago
+          entityType: 'ai',
+          entityId: 'ai-fix-login',
+          action: 'ai_component_generated',
+          summary: "AI fixed Login Bug: resolved session storage token validation mismatch",
+          createdAt: d6
         }
       ]
 
       await Activity.create(seedActivities)
-      total = seedActivities.length
     }
 
+    // Build search filter query
+    const filter = { owner }
+    if (q.trim()) {
+      filter.$or = [
+        { summary: { $regex: q.trim(), $options: 'i' } },
+        { action: { $regex: q.trim(), $options: 'i' } },
+        { entityType: { $regex: q.trim(), $options: 'i' } }
+      ]
+    }
+
+    const total = await Activity.countDocuments(filter)
     const page  = Math.max(1, parseInt(req.query.page, 10)  || 1)
     const limit = Math.min(50, parseInt(req.query.limit, 10) || 20)
     const skip  = (page - 1) * limit
 
-    const events = await Activity.find({ owner })
+    const events = await Activity.find(filter)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
