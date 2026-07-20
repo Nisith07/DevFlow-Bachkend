@@ -1,3 +1,4 @@
+import mongoose from 'mongoose'
 import Activity from './activity.model.js'
 
 /**
