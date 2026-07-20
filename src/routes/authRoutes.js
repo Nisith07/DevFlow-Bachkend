@@ -72,6 +72,25 @@ router.get('/google/callback', (req, res, next) => {
 
 router.get('/me', requireAuth, (req, res) => res.json({ user: req.user.toSafeObject() }))
 
+router.get('/users', requireAuth, async (req, res, next) => {
+  try {
+    const query = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+    let filter = {}
+    if (query) {
+      filter = {
+        $or: [
+          { name: { $regex: query, $options: 'i' } },
+          { email: { $regex: query, $options: 'i' } }
+        ]
+      }
+    }
+    const users = await User.find(filter).limit(50)
+    return res.json({ data: users.map(u => u.toSafeObject()) })
+  } catch (error) {
+    return next(error)
+  }
+})
+
 router.post('/logout', (req, res) => res.clearCookie('devflow_token', cookieOptions).status(204).send())
 
 export default router

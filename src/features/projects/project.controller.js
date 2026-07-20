@@ -4,11 +4,33 @@ import { recordActivity } from '../activity/activity.controller.js'
 export async function getProjects(req, res, next) {
   try {
     const owner = req.user._id
-    // Fetch user's projects
-    const projects = await Project.find({ owner }).sort({ updatedAt: -1 })
+    const { status, search, favorite } = req.query
     
-    // For now, taskCount is mocked since tasks feature is built in Phase 3.
-    // We map it to include structural placeholder counts so frontend works seamlessly.
+    let filter = { owner }
+    
+    if (status && status !== 'all') {
+      filter.status = status
+    }
+    
+    if (favorite === 'true') {
+      filter.isFavorite = true
+    }
+    
+    if (search) {
+      const searchRegex = { $regex: search, $options: 'i' }
+      filter.$or = [
+        { name: searchRegex },
+        { title: searchRegex },
+        { description: searchRegex },
+        { techStack: searchRegex },
+        { technologies: searchRegex }
+      ]
+    }
+
+    const projects = await Project.find(filter)
+      .populate('teamMembers', 'name email avatarUrl')
+      .sort({ updatedAt: -1 })
+    
     const projectsWithCounts = projects.map(p => {
       const obj = p.toObject()
       return {
@@ -29,39 +51,51 @@ export async function createProject(req, res, next) {
   try {
     const owner = req.user._id
     const {
-      name, description, color, icon, status, priority, dueDate, tags,
-      techStack, teamMembers, timeline, roadmap, documentation, deployments, aiSummary, metrics
+      name, title, description, color, icon, status, priority, dueDate, deadline, startDate, tags,
+      techStack, technologies, teamMembers, timeline, roadmap, documentation, deployments, aiSummary, metrics,
+      githubRepo, progress, isFavorite, isArchived, sprints
     } = req.body
 
-    if (!name || typeof name !== 'string' || !name.trim()) {
-      return res.status(400).json({ message: 'Project name is required.' })
+    const nameOrTitle = name || title;
+    if (!nameOrTitle || typeof nameOrTitle !== 'string' || !nameOrTitle.trim()) {
+      return res.status(400).json({ message: 'Project name or title is required.' })
     }
-    if (name.length > 120) {
+    if (nameOrTitle.length > 120) {
       return res.status(400).json({ message: 'Project name must be 120 characters or fewer.' })
     }
 
     const project = await Project.create({
       owner,
-      name: name.trim(),
+      name: nameOrTitle.trim(),
+      title: nameOrTitle.trim(),
       description: typeof description === 'string' ? description.trim() : '',
       color: typeof color === 'string' ? color : '#4FB8A8',
       icon: typeof icon === 'string' ? icon : '📁',
       status: status || 'active',
       priority: priority || 'medium',
-      dueDate: dueDate ? new Date(dueDate) : undefined,
+      dueDate: dueDate ? new Date(dueDate) : (deadline ? new Date(deadline) : undefined),
+      deadline: deadline ? new Date(deadline) : (dueDate ? new Date(dueDate) : undefined),
+      startDate: startDate ? new Date(startDate) : undefined,
       tags: Array.isArray(tags) ? tags : [],
-      techStack: Array.isArray(techStack) ? techStack : [],
+      techStack: Array.isArray(techStack) ? techStack : (Array.isArray(technologies) ? technologies : []),
+      technologies: Array.isArray(technologies) ? technologies : (Array.isArray(techStack) ? techStack : []),
       teamMembers: Array.isArray(teamMembers) ? teamMembers : [],
       timeline: Array.isArray(timeline) ? timeline : [],
       roadmap: Array.isArray(roadmap) ? roadmap : [],
       documentation: Array.isArray(documentation) ? documentation : [],
       deployments: Array.isArray(deployments) ? deployments : [],
       aiSummary: typeof aiSummary === 'string' ? aiSummary : '',
-      metrics: metrics || { progress: 0, openIssues: 0, features: 0, lastUpdated: new Date() }
+      metrics: metrics || { progress: progress || 0, openIssues: 0, features: 0, lastUpdated: new Date() },
+      githubRepo: typeof githubRepo === 'string' ? githubRepo.trim() : '',
+      progress: progress !== undefined ? Number(progress) : 0,
+      isFavorite: !!isFavorite,
+      isArchived: !!isArchived || status === 'archived',
+      sprints: Array.isArray(sprints) ? sprints : [],
     })
 
-    const responseObj = project.toObject()
-    responseObj.id = project._id.toString()
+    const populatedProject = await Project.findById(project._id).populate('teamMembers', 'name email avatarUrl')
+    const responseObj = populatedProject.toObject()
+    responseObj.id = populatedProject._id.toString()
     responseObj.taskCount = 0
     responseObj.completedTaskCount = 0
 
@@ -86,6 +120,8 @@ export async function getProject(req, res, next) {
     const { id } = req.params
 
     const project = await Project.findOne({ _id: id, owner })
+      .populate('teamMembers', 'name email avatarUrl')
+    
     if (!project) {
       return res.status(404).json({ message: 'Project not found.' })
     }
@@ -106,8 +142,9 @@ export async function updateProject(req, res, next) {
     const owner = req.user._id
     const { id } = req.params
     const {
-      name, description, color, icon, status, priority, dueDate, tags,
-      techStack, teamMembers, timeline, roadmap, documentation, deployments, aiSummary, metrics
+      name, title, description, color, icon, status, priority, dueDate, deadline, startDate, tags,
+      techStack, technologies, teamMembers, timeline, roadmap, documentation, deployments, aiSummary, metrics,
+      githubRepo, progress, isFavorite, isArchived, sprints
     } = req.body
 
     const project = await Project.findOne({ _id: id, owner })
@@ -115,7 +152,16 @@ export async function updateProject(req, res, next) {
       return res.status(404).json({ message: 'Project not found.' })
     }
 
-    if (name !== undefined) {
+    if (title !== undefined) {
+      if (typeof title !== 'string' || !title.trim()) {
+        return res.status(400).json({ message: 'Project title cannot be empty.' })
+      }
+      if (title.length > 120) {
+        return res.status(400).json({ message: 'Project title must be 120 characters or fewer.' })
+      }
+      project.title = title.trim()
+      project.name = title.trim()
+    } else if (name !== undefined) {
       if (typeof name !== 'string' || !name.trim()) {
         return res.status(400).json({ message: 'Project name cannot be empty.' })
       }
@@ -123,6 +169,7 @@ export async function updateProject(req, res, next) {
         return res.status(400).json({ message: 'Project name must be 120 characters or fewer.' })
       }
       project.name = name.trim()
+      project.title = name.trim()
     }
 
     if (description !== undefined) {
@@ -133,20 +180,34 @@ export async function updateProject(req, res, next) {
     if (status !== undefined) project.status = status
     if (priority !== undefined) project.priority = priority
     if (dueDate !== undefined) project.dueDate = dueDate ? new Date(dueDate) : null
+    if (deadline !== undefined) project.deadline = deadline ? new Date(deadline) : null
+    if (startDate !== undefined) project.startDate = startDate ? new Date(startDate) : null
     if (tags !== undefined) project.tags = Array.isArray(tags) ? tags : []
     if (techStack !== undefined) project.techStack = Array.isArray(techStack) ? techStack : []
+    if (technologies !== undefined) project.technologies = Array.isArray(technologies) ? technologies : []
     if (teamMembers !== undefined) project.teamMembers = Array.isArray(teamMembers) ? teamMembers : []
     if (timeline !== undefined) project.timeline = Array.isArray(timeline) ? timeline : []
     if (roadmap !== undefined) project.roadmap = Array.isArray(roadmap) ? roadmap : []
     if (documentation !== undefined) project.documentation = Array.isArray(documentation) ? documentation : []
     if (deployments !== undefined) project.deployments = Array.isArray(deployments) ? deployments : []
     if (aiSummary !== undefined) project.aiSummary = typeof aiSummary === 'string' ? aiSummary : ''
-    if (metrics !== undefined) project.metrics = { ...project.metrics, ...metrics, lastUpdated: new Date() }
+    
+    if (githubRepo !== undefined) project.githubRepo = typeof githubRepo === 'string' ? githubRepo.trim() : ''
+    if (progress !== undefined) project.progress = Number(progress)
+    if (isFavorite !== undefined) project.isFavorite = !!isFavorite
+    if (isArchived !== undefined) project.isArchived = !!isArchived
+    if (sprints !== undefined) project.sprints = Array.isArray(sprints) ? sprints : []
+
+    if (metrics !== undefined) {
+      project.metrics = { ...project.metrics, ...metrics }
+    }
+    project.metrics.lastUpdated = new Date()
 
     await project.save()
 
-    const responseObj = project.toObject()
-    responseObj.id = project._id.toString()
+    const populatedProject = await Project.findById(project._id).populate('teamMembers', 'name email avatarUrl')
+    const responseObj = populatedProject.toObject()
+    responseObj.id = populatedProject._id.toString()
     responseObj.taskCount = 0
     responseObj.completedTaskCount = 0
 
