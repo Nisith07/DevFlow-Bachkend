@@ -1,4 +1,45 @@
+import axios from 'axios'
 import Task from '../tasks/task.model.js'
+import User from '../../models/User.js'
+
+async function getGitHubContributions(token) {
+  try {
+    const response = await axios.post(
+      'https://api.github.com/graphql',
+      {
+        query: `
+          query {
+            viewer {
+              contributionsCollection {
+                contributionCalendar {
+                  totalContributions
+                  weeks {
+                    contributionDays {
+                      color
+                      contributionCount
+                      date
+                    }
+                  }
+                }
+              }
+            }
+          }
+        `
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+          'User-Agent': 'DevFlow-App'
+        }
+      }
+    )
+    return response.data?.data?.viewer?.contributionsCollection?.contributionCalendar
+  } catch (err) {
+    console.error('[GitHub] Failed to fetch contributions calendar:', err.message)
+    return null
+  }
+}
 
 /**
  * Compute consecutive-day streak from an array of completedAt dates.
@@ -39,6 +80,35 @@ function computeStreak(dates) {
 export async function getDashboardSummary(req, res, next) {
   try {
     const owner = req.user._id
+
+    // Fetch user with githubToken
+    const dbUser = await User.findById(owner).select('+githubToken')
+    let githubStats = { connected: false, commits: 23, contributionGrid: [3,0,5,8,2,6,1,7,4,0,8,3,9,2,6,4,0,9] }
+
+    if (dbUser && dbUser.githubToken) {
+      const calendar = await getGitHubContributions(dbUser.githubToken)
+      if (calendar) {
+        // Flatten the weeks to get all days
+        const allDays = calendar.weeks.flatMap(w => w.contributionDays)
+        
+        // Sum total contributions in the last 7 days for the "This Week" commits count
+        const sevenDaysAgo = new Date()
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+        const weeklyCommits = allDays
+          .filter(d => new Date(d.date) >= sevenDaysAgo)
+          .reduce((sum, d) => sum + d.contributionCount, 0)
+
+        // Get the last 18 days for the dashboard card grid
+        const recentDays = allDays.slice(-18)
+
+        githubStats = {
+          connected: true,
+          commits: weeklyCommits,
+          totalYear: calendar.totalContributions,
+          contributionGrid: recentDays.map(d => d.contributionCount)
+        }
+      }
+    }
 
     // --- Date windows ---
     const now = new Date()
@@ -105,6 +175,7 @@ export async function getDashboardSummary(req, res, next) {
         todayTasks:         todayTasks.map(normalise),
         yesterdayCompleted: yesterdayCompleted.map(normalise),
         streak,
+        githubStats,
         stats: {
           total:   totalTasks,
           done:    doneTasks,
