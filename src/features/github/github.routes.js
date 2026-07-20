@@ -1,7 +1,8 @@
 import { Router } from 'express'
 import {
+  startOAuth,
+  handleOAuthCallback,
   getTokenStatus,
-  saveToken,
   deleteToken,
   getRepos,
   createRepo,
@@ -15,18 +16,26 @@ import { requireAuth } from '../../middleware/requireAuth.js'
 
 const router = Router()
 
+// ── GitHub OAuth flow ─────────────────────────────────────────────────────────
+// Start: user must be logged in so we can embed their userId in the state token
+router.get('/oauth/start', requireAuth, startOAuth)
+
+// Callback: public — GitHub redirects here after the user authorizes.
+// State JWT is used to identify the user instead of a session cookie.
+router.get('/oauth/callback', handleOAuthCallback)
+
+// ── All routes below require DevFlow authentication ───────────────────────────
 router.use(requireAuth)
 
-// OAuth / Token management
+// Token / connection status & disconnect
 router.get('/token', getTokenStatus)
-router.post('/token', saveToken)
 router.delete('/token', deleteToken)
 
 // Repos listing & creation
 router.get('/repos', getRepos)
 router.post('/repos', createRepo)
 
-// Repo assets proxy endpoints
+// Per-repo asset proxy endpoints
 router.get('/repos/:owner/:repo', getRepoDetails)
 router.get('/repos/:owner/:repo/branches', getBranches)
 router.get('/repos/:owner/:repo/pulls', getPullRequests)
