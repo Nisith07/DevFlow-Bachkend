@@ -34,6 +34,17 @@ const noteSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    isFavorite: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    folder: {
+      type: String,
+      trim: true,
+      default: '',
+      index: true,
+    },
     tags: {
       type: [String],
       default: [],

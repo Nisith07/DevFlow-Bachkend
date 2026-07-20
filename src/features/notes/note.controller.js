@@ -5,13 +5,15 @@ import Task from '../tasks/task.model.js'
 export async function getNotes(req, res, next) {
   try {
     const owner = req.user._id
-    const { project, tag, pinned, search } = req.query
+    const { project, tag, pinned, search, folder, favorite } = req.query
 
     const filter = { owner }
 
     if (project) filter.project = project
     if (tag) filter.tags = tag
     if (pinned !== undefined) filter.isPinned = pinned === 'true'
+    if (favorite !== undefined) filter.isFavorite = favorite === 'true'
+    if (folder !== undefined) filter.folder = folder
 
     if (search) {
       filter.$or = [
@@ -42,7 +44,7 @@ export async function getNotes(req, res, next) {
 export async function createNote(req, res, next) {
   try {
     const owner = req.user._id
-    const { title, body, project, task, isPinned, tags } = req.body
+    const { title, body, project, task, isPinned, isFavorite, folder, tags } = req.body
 
     // Verify project ownership if project is specified
     if (project) {
@@ -67,6 +69,8 @@ export async function createNote(req, res, next) {
       project: project || undefined,
       task: task || undefined,
       isPinned: !!isPinned,
+      isFavorite: !!isFavorite,
+      folder: folder ? folder.trim() : '',
       tags: Array.isArray(tags) ? tags : [],
     })
 
@@ -110,7 +114,7 @@ export async function updateNote(req, res, next) {
   try {
     const owner = req.user._id
     const { id } = req.params
-    const { title, body, project, task, isPinned, tags } = req.body
+    const { title, body, project, task, isPinned, isFavorite, folder, tags } = req.body
 
     const note = await Note.findOne({ _id: id, owner })
     if (!note) {
@@ -144,6 +148,8 @@ export async function updateNote(req, res, next) {
     if (title !== undefined) note.title = title ? title.trim() : 'Untitled Note'
     if (body !== undefined) note.body = body
     if (isPinned !== undefined) note.isPinned = !!isPinned
+    if (isFavorite !== undefined) note.isFavorite = !!isFavorite
+    if (folder !== undefined) note.folder = folder ? folder.trim() : ''
     if (tags !== undefined) note.tags = Array.isArray(tags) ? tags : []
 
     await note.save()

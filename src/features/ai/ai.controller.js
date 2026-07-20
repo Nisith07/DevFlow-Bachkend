@@ -1,6 +1,7 @@
 import mongoose from 'mongoose'
 import { GoogleGenAI } from '@google/genai'
 import AIConversation from './ai.model.js'
+import AICopilotHistory from './copilot.model.js'
 import Task from '../tasks/task.model.js'
 import Project from '../projects/project.model.js'
 import PlannerEntry from '../planner/planner.model.js'
@@ -339,6 +340,165 @@ Task Description: ${description || 'None'}`
 
     const estimateText = response.text ? response.text.trim() : '1h'
     return res.json({ data: { estimate: estimateText } })
+  } catch (error) {
+    return next(error)
+  }
+}
+
+function estimateTokens(text) {
+  if (!text) return 0
+  return Math.ceil(text.length / 4)
+}
+
+export async function getCopilotHistory(req, res, next) {
+  try {
+    const owner = req.user._id
+    const { capability, favorite } = req.query
+    const filter = { owner }
+    if (capability) filter.capability = capability
+    if (favorite !== undefined) filter.isFavorite = favorite === 'true'
+
+    const history = await AICopilotHistory.find(filter).sort({ createdAt: -1 })
+    const mapped = history.map(h => {
+      const obj = h.toObject()
+      obj.id = h._id.toString()
+      return obj
+    })
+    return res.json({ data: mapped })
+  } catch (error) {
+    return next(error)
+  }
+}
+
+export async function runCopilotTool(req, res, next) {
+  try {
+    const owner = req.user._id
+    const { capability, prompt } = req.body
+
+    if (!capability || !prompt || !prompt.trim()) {
+      return res.status(400).json({ message: 'Capability and prompt are required.' })
+    }
+
+    let systemInstruction = ''
+    switch (capability) {
+      case 'explain_code':
+        systemInstruction = 'You are an expert developer. Explain the provided code clearly, explaining its logic, purpose, complex parts, and side effects. Format in Markdown.'
+        break
+      case 'generate_code':
+        systemInstruction = 'You are an expert software engineer. Generate clean, documented, and production-grade code based on the user requirement. Use Markdown code blocks for all code.'
+        break
+      case 'debug_error':
+        systemInstruction = 'You are an expert debugger. Analyze the error message and the code context provided, explain what causes the error, and provide the corrected code. Format in Markdown.'
+        break
+      case 'optimize_code':
+        systemInstruction = 'You are a performance optimization expert. Refactor the code context to improve execution speed, memory footprint, or readability. Explain the improvements made. Format in Markdown.'
+        break
+      case 'generate_readme':
+        systemInstruction = 'You are a technical writer. Write a comprehensive and professional README.md document for the project/module description. Use clean Markdown styling.'
+        break
+      case 'generate_api':
+        systemInstruction = 'You are a senior backend architect. Generate a clean REST or GraphQL API route and controller code structure based on the prompt description. Format in Markdown.'
+        break
+      case 'write_commit':
+        systemInstruction = 'You are a Git release manager. Write a concise, professional Git commit message matching the Conventional Commits specification (e.g. feat: add login validation) based on the user code changes. Output ONLY the commit message blocks.'
+        break
+      case 'review_code':
+        systemInstruction = 'You are a strict code reviewer. Review the provided code, pointing out security vulnerabilities, code smells, performance bottlenecks, and structural flaws. Provide suggestions. Format in Markdown.'
+        break
+      case 'sql_generator':
+        systemInstruction = 'You are an expert database administrator. Generate clean SQL statements matching the request description (e.g. SELECT, INSERT, CREATE TABLE). Use Markdown code blocks for all SQL code.'
+        break
+      case 'regex_generator':
+        systemInstruction = 'You are an expert in string processing. Generate a regular expression pattern matching the user requirement. Explain how the pattern works with examples. Format in Markdown.'
+        break
+      case 'doc_generator':
+        systemInstruction = 'You are a documentation generator. Generate comprehensive JSDoc/Docstrings or technical manual pages for the provided code context. Format in Markdown.'
+        break
+      default:
+        systemInstruction = 'You are an expert AI software engineering assistant.'
+    }
+
+    let responseText = ''
+    if (aiClient) {
+      try {
+        const response = await aiClient.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: prompt,
+          config: { systemInstruction }
+        })
+        responseText = response.text || 'Failed to generate code response from Gemini.'
+      } catch (err) {
+        console.error('[AI Copilot Tool] LLM error:', err.message)
+        responseText = `Local fallback mode response for ${capability}: Could not complete requests with LLM. Please verify Gemini configuration.`
+      }
+    } else {
+      responseText = `Local fallback mode response: Please add your GEMINI_API_KEY to the backend .env configuration to run developer AI tools.`
+    }
+
+    const promptTokens = estimateTokens(prompt)
+    const responseTokens = estimateTokens(responseText)
+    const totalTokens = promptTokens + responseTokens
+
+    const historyRow = await AICopilotHistory.create({
+      owner,
+      capability,
+      prompt,
+      response: responseText,
+      tokens: totalTokens,
+      isFavorite: false
+    })
+
+    const obj = historyRow.toObject()
+    obj.id = historyRow._id.toString()
+
+    recordActivity({
+      owner,
+      entityType: 'ai_history',
+      entityId: historyRow._id,
+      action: 'ai_run',
+      summary: `Used AI Copilot: ${capability.replace('_', ' ')}`,
+      meta: { capability }
+    })
+
+    return res.status(201).json({ data: obj })
+  } catch (error) {
+    return next(error)
+  }
+}
+
+export async function updateCopilotHistory(req, res, next) {
+  try {
+    const owner = req.user._id
+    const { id } = req.params
+    const { isFavorite } = req.body
+
+    const history = await AICopilotHistory.findOneAndUpdate(
+      { _id: id, owner },
+      { isFavorite },
+      { new: true }
+    )
+    if (!history) {
+      return res.status(404).json({ message: 'History record not found.' })
+    }
+
+    const obj = history.toObject()
+    obj.id = history._id.toString()
+    return res.json({ data: obj })
+  } catch (error) {
+    return next(error)
+  }
+}
+
+export async function deleteCopilotHistory(req, res, next) {
+  try {
+    const owner = req.user._id
+    const { id } = req.params
+
+    const history = await AICopilotHistory.findOneAndDelete({ _id: id, owner })
+    if (!history) {
+      return res.status(404).json({ message: 'History record not found.' })
+    }
+    return res.status(204).send()
   } catch (error) {
     return next(error)
   }

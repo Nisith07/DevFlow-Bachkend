@@ -33,6 +33,11 @@ const plannerEntrySchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    type: {
+      type: String,
+      enum: ['focus_task', 'meeting', 'routine', 'other'],
+      default: 'focus_task',
+    },
     order: {
       type: Number,
       default: 0,

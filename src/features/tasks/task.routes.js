@@ -10,6 +10,10 @@ import {
   addSubtask,
   updateSubtask,
   deleteSubtask,
+  addTaskComment,
+  deleteTaskComment,
+  addTaskAttachment,
+  deleteTaskAttachment,
 } from './task.controller.js'
 import { requireAuth } from '../../middleware/requireAuth.js'
 
@@ -30,5 +34,13 @@ router.post('/:id/complete', completeTask)
 router.post('/:id/subtasks', addSubtask)
 router.patch('/:id/subtasks/:subId', updateSubtask)
 router.delete('/:id/subtasks/:subId', deleteSubtask)
+
+// Comments routes
+router.post('/:id/comments', addTaskComment)
+router.delete('/:id/comments/:commentId', deleteTaskComment)
+
+// Attachments routes
+router.post('/:id/attachments', addTaskAttachment)
+router.delete('/:id/attachments/:attachmentId', deleteTaskAttachment)
 
 export default router

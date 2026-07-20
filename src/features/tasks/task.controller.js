@@ -28,7 +28,6 @@ export async function getTasks(req, res, next) {
     }
 
     if (date) {
-      // Normalize plannedDate
       const startOfDay = new Date(date)
       startOfDay.setUTCHours(0, 0, 0, 0)
       const endOfDay = new Date(date)
@@ -36,9 +35,10 @@ export async function getTasks(req, res, next) {
       filter.plannedDate = { $gte: startOfDay, $lte: endOfDay }
     }
 
-    const tasks = await Task.find(filter).sort({ order: 1, createdAt: -1 })
+    const tasks = await Task.find(filter)
+      .populate('assignee', 'name email avatarUrl')
+      .sort({ order: 1, createdAt: -1 })
     
-    // Normalise _id to id
     const mappedTasks = tasks.map(t => {
       const obj = t.toObject()
       obj.id = t._id.toString()
@@ -65,13 +65,13 @@ export async function createTask(req, res, next) {
       labels,
       isToday,
       plannedDate,
+      assignee,
     } = req.body
 
     if (!title || typeof title !== 'string' || !title.trim()) {
       return res.status(400).json({ message: 'Task title is required.' })
     }
 
-    // Verify project ownership if project is specified
     if (project) {
       const valid = await verifyProject(project, owner)
       if (!valid) {
@@ -92,12 +92,15 @@ export async function createTask(req, res, next) {
       isToday: !!isToday,
       plannedDate: plannedDate ? new Date(plannedDate) : undefined,
       completedAt: status === 'done' ? new Date() : undefined,
+      assignee: assignee || undefined,
+      comments: [],
+      attachments: [],
     })
 
-    const responseObj = task.toObject()
-    responseObj.id = task._id.toString()
+    const populatedTask = await Task.findById(task._id).populate('assignee', 'name email avatarUrl')
+    const responseObj = populatedTask.toObject()
+    responseObj.id = populatedTask._id.toString()
 
-    // Record activity (fire-and-forget)
     recordActivity({
       owner: owner,
       entityType: 'task',
@@ -119,6 +122,9 @@ export async function getTask(req, res, next) {
     const { id } = req.params
 
     const task = await Task.findOne({ _id: id, owner })
+      .populate('assignee', 'name email avatarUrl')
+      .populate('comments.author', 'name email avatarUrl')
+      
     if (!task) {
       return res.status(404).json({ message: 'Task not found.' })
     }
@@ -147,6 +153,7 @@ export async function updateTask(req, res, next) {
       labels,
       isToday,
       plannedDate,
+      assignee,
     } = req.body
 
     const task = await Task.findOne({ _id: id, owner })
@@ -179,6 +186,7 @@ export async function updateTask(req, res, next) {
     if (labels !== undefined) task.labels = labels
     if (isToday !== undefined) task.isToday = isToday
     if (plannedDate !== undefined) task.plannedDate = plannedDate
+    if (assignee !== undefined) task.assignee = assignee || undefined
 
     if (dueDate !== undefined) {
       task.dueDate = dueDate ? new Date(dueDate) : undefined
@@ -195,8 +203,12 @@ export async function updateTask(req, res, next) {
 
     await task.save()
 
-    const responseObj = task.toObject()
-    responseObj.id = task._id.toString()
+    const populated = await Task.findById(task._id)
+      .populate('assignee', 'name email avatarUrl')
+      .populate('comments.author', 'name email avatarUrl')
+
+    const responseObj = populated.toObject()
+    responseObj.id = populated._id.toString()
 
     return res.json({ data: responseObj })
   } catch (error) {
@@ -374,6 +386,120 @@ export async function completeTask(req, res, next) {
       summary: `Completed task "${task.title}"`,
       meta: { title: task.title },
     })
+
+    return res.json({ data: responseObj })
+  } catch (error) {
+    return next(error)
+  }
+}
+
+export async function addTaskComment(req, res, next) {
+  try {
+    const owner = req.user._id
+    const { id } = req.params
+    const { content } = req.body
+
+    if (!content || typeof content !== 'string' || !content.trim()) {
+      return res.status(400).json({ message: 'Comment content is required.' })
+    }
+
+    const task = await Task.findOne({ _id: id, owner })
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found.' })
+    }
+
+    task.comments.push({ author: owner, content: content.trim() })
+    await task.save()
+
+    const populated = await Task.findById(id)
+      .populate('assignee', 'name email avatarUrl')
+      .populate('comments.author', 'name email avatarUrl')
+    
+    const responseObj = populated.toObject()
+    responseObj.id = populated._id.toString()
+
+    return res.status(201).json({ data: responseObj })
+  } catch (error) {
+    return next(error)
+  }
+}
+
+export async function deleteTaskComment(req, res, next) {
+  try {
+    const owner = req.user._id
+    const { id, commentId } = req.params
+
+    const task = await Task.findOne({ _id: id, owner })
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found.' })
+    }
+
+    task.comments.pull(commentId)
+    await task.save()
+
+    const populated = await Task.findById(id)
+      .populate('assignee', 'name email avatarUrl')
+      .populate('comments.author', 'name email avatarUrl')
+    
+    const responseObj = populated.toObject()
+    responseObj.id = populated._id.toString()
+
+    return res.json({ data: responseObj })
+  } catch (error) {
+    return next(error)
+  }
+}
+
+export async function addTaskAttachment(req, res, next) {
+  try {
+    const owner = req.user._id
+    const { id } = req.params
+    const { name, url } = req.body
+
+    if (!name || !url) {
+      return res.status(400).json({ message: 'Attachment name and URL are required.' })
+    }
+
+    const task = await Task.findOne({ _id: id, owner })
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found.' })
+    }
+
+    task.attachments.push({ name: name.trim(), url: url.trim() })
+    await task.save()
+
+    const populated = await Task.findById(id)
+      .populate('assignee', 'name email avatarUrl')
+      .populate('comments.author', 'name email avatarUrl')
+    
+    const responseObj = populated.toObject()
+    responseObj.id = populated._id.toString()
+
+    return res.status(201).json({ data: responseObj })
+  } catch (error) {
+    return next(error)
+  }
+}
+
+export async function deleteTaskAttachment(req, res, next) {
+  try {
+    const owner = req.user._id
+    const { id, attachmentId } = req.params
+
+    const task = await Task.findOne({ _id: id, owner })
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found.' })
+    }
+
+    task.attachments.pull(attachmentId)
+    await task.save()
+
+    const populated = await Task.findById(id)
+      .populate('assignee', 'name email avatarUrl')
+      .populate('comments.author', 'name email avatarUrl')
+    
+    const responseObj = populated.toObject()
+    responseObj.id = populated._id.toString()
 
     return res.json({ data: responseObj })
   } catch (error) {

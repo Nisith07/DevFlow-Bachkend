@@ -72,6 +72,87 @@ router.get('/google/callback', (req, res, next) => {
 
 router.get('/me', requireAuth, (req, res) => res.json({ user: req.user.toSafeObject() }))
 
+router.patch('/settings', requireAuth, async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user._id).select('+password')
+    if (!user) return res.status(404).json({ message: 'User not found.' })
+
+    const {
+      name, avatarUrl, bio, username, email,
+      currentPassword, newPassword,
+      theme, notifications, timezone, language, connectedAccounts
+    } = req.body
+
+    // Update Profile details
+    if (name !== undefined) user.name = name.trim()
+    if (avatarUrl !== undefined) user.avatarUrl = avatarUrl.trim()
+    if (bio !== undefined) user.bio = bio.trim()
+    if (username !== undefined) user.username = username.trim()
+
+    // Update Account details
+    if (email !== undefined) {
+      const emailLower = email.trim().toLowerCase()
+      if (emailPattern.test(emailLower) && emailLower !== user.email) {
+        if (await User.exists({ email: emailLower })) {
+          return res.status(409).json({ message: 'Email is already in use.' })
+        }
+        user.email = emailLower
+      }
+    }
+
+    // Update password
+    if (currentPassword && newPassword) {
+      if (!user.password || !(await bcrypt.compare(currentPassword, user.password))) {
+        return res.status(400).json({ message: 'Incorrect current password.' })
+      }
+      if (newPassword.length < 8) {
+        return res.status(400).json({ message: 'New password must be at least 8 characters.' })
+      }
+      user.password = await bcrypt.hash(newPassword, 12)
+    }
+
+    // Update nested Settings details
+    if (!user.settings) {
+      user.settings = {
+        theme: 'dark',
+        notifications: { email: true, sms: false, sound: true },
+        timezone: 'UTC',
+        language: 'en',
+        connectedAccounts: { githubConnected: false, googleConnected: false, linkedinConnected: false }
+      }
+    }
+
+    if (theme !== undefined) user.settings.theme = theme
+    if (timezone !== undefined) user.settings.timezone = timezone
+    if (language !== undefined) user.settings.language = language
+
+    if (notifications !== undefined) {
+      user.settings.notifications = {
+        ...user.settings.notifications,
+        ...notifications
+      }
+    }
+
+    if (connectedAccounts !== undefined) {
+      user.settings.connectedAccounts = {
+        ...user.settings.connectedAccounts,
+        ...connectedAccounts
+      }
+    }
+
+    // Handle deactivation mock
+    if (req.body.deactivateAccount === true) {
+      await User.findByIdAndDelete(user._id)
+      return res.clearCookie('devflow_token', cookieOptions).status(204).send()
+    }
+
+    await user.save()
+    return res.json({ user: user.toSafeObject() })
+  } catch (error) {
+    return next(error)
+  }
+})
+
 router.get('/users', requireAuth, async (req, res, next) => {
   try {
     const query = typeof req.query.q === 'string' ? req.query.q.trim() : ''

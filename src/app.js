@@ -14,7 +14,12 @@ import activityRoutes from './features/activity/activity.routes.js'
 import analyticsRoutes from './features/analytics/analytics.routes.js'
 import aiRoutes from './features/ai/ai.routes.js'
 import notificationRoutes from './features/notifications/notification.routes.js'
-import searchRoutes from './features/search/search.routes.js'
+import issueRoutes from './features/issues/issue.routes.js'
+import githubRoutes from './features/github/github.routes.js'
+import resumeRoutes from './features/resume/resume.routes.js'
+import portfolioRoutes from './features/portfolio/portfolio.routes.js'
+import snippetRoutes from './features/snippets/snippet.routes.js'
+import integrationRoutes from './features/integrations/integration.routes.js'
 import { requestId } from './middleware/requestId.js'
 import { notFound } from './middleware/notFound.js'
 import { errorHandler } from './middleware/errorHandler.js'
@@ -63,6 +68,12 @@ export function createApp(googleEnabled) {
   app.use('/api/v1/ai', aiRoutes)
   app.use('/api/v1/notifications', notificationRoutes)
   app.use('/api/v1/search', searchRoutes)
+  app.use('/api/v1/issues', issueRoutes)
+  app.use('/api/v1/github', githubRoutes)
+  app.use('/api/v1/resume', resumeRoutes)
+  app.use('/api/v1/portfolio', portfolioRoutes)
+  app.use('/api/v1/snippets', snippetRoutes)
+  app.use('/api/v1/integrations', integrationRoutes)
 
   app.get("/", (req, res) => {
     res.json({
