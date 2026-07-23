@@ -30,6 +30,7 @@ export function startOAuth(req, res) {
     redirect_uri: process.env.GITHUB_CALLBACK_URL,
     scope: 'repo read:user',
     state,
+    prompt: 'consent',
   })
 
   return res.redirect(`https://github.com/login/oauth/authorize?${params.toString()}`)
