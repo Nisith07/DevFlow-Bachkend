@@ -15,7 +15,7 @@ const activitySchema = new mongoose.Schema(
     // Entity type this event relates to
     entityType: {
       type: String,
-      enum: ['task', 'project', 'note', 'planner', 'issue', 'github', 'ai', 'portfolio'],
+      enum: ['task', 'project', 'note', 'planner', 'issue', 'github', 'ai', 'ai_history', 'focus', 'portfolio'],
       required: true,
     },
     entityId: {
@@ -36,9 +36,10 @@ const activitySchema = new mongoose.Schema(
         'project_created', 'project_updated', 'project_deleted',
         'note_created', 'note_updated', 'note_deleted',
         'planner_created', 'planner_completed',
-        'issue_created', 'issue_closed',
+        'issue_created', 'issue_updated', 'issue_closed', 'issue_deleted',
         'github_committed', 'portfolio_deployed',
-        'ai_readme_generated', 'ai_component_generated',
+        'ai_readme_generated', 'ai_component_generated', 'ai_run',
+        'focus_started', 'focus_completed', 'focus_abandoned',
         'team_joined'
       ],
       required: true,

@@ -10,6 +10,9 @@ import {
   runCopilotTool,
   updateCopilotHistory,
   deleteCopilotHistory,
+  getProjectMemory,
+  refreshProjectMemory,
+  generateDailyBriefing,
 } from './ai.controller.js'
 import { requireAuth } from '../../middleware/requireAuth.js'
 
@@ -17,18 +20,27 @@ const router = Router()
 
 router.use(requireAuth)
 
-// Chats Routes
-router.get('/', getConversations)
-router.post('/', createConversation)
-router.post('/estimate-task', estimateTask)
-router.get('/:id', getConversation)
-router.delete('/:id', deleteConversation)
-router.post('/:id/messages', postMessage)
+// Daily briefing
+router.post('/briefing', generateDailyBriefing)
 
-// Developer Copilot Tool routes
+// AI Task estimate
+router.post('/estimate-task', estimateTask)
+
+// Developer Copilot Tool routes (must be before /:id)
 router.get('/copilot/history', getCopilotHistory)
 router.post('/copilot/run', runCopilotTool)
 router.patch('/copilot/history/:id', updateCopilotHistory)
 router.delete('/copilot/history/:id', deleteCopilotHistory)
+
+// Project Memory routes
+router.get('/projects/:projectId/memory', getProjectMemory)
+router.post('/projects/:projectId/memory/refresh', refreshProjectMemory)
+
+// Chat / Conversation routes
+router.get('/', getConversations)
+router.post('/', createConversation)
+router.get('/:id', getConversation)
+router.delete('/:id', deleteConversation)
+router.post('/:id/messages', postMessage)
 
 export default router

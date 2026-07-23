@@ -2,6 +2,9 @@ import mongoose from 'mongoose'
 import Task from '../tasks/task.model.js'
 import Project from '../projects/project.model.js'
 import AICopilotHistory from '../ai/copilot.model.js'
+import Activity from '../activity/activity.model.js'
+import User from '../../models/User.js'
+import axios from 'axios'
 
 export async function getAnalyticsSummary(req, res, next) {
   try {
@@ -20,7 +23,8 @@ export async function getAnalyticsSummary(req, res, next) {
       projectStats,
       completionHeatmap,
       aiStats,
-      weeklyCompletions
+      weeklyCompletions,
+      activityByDay
     ] = await Promise.all([
       // 1. Task counts by status
       Task.aggregate([
@@ -148,7 +152,27 @@ export async function getAnalyticsSummary(req, res, next) {
         },
         { $sort: { _id: 1 } },
         { $project: { _id: 0, date: '$_id', count: 1 } },
-      ])
+      ]),
+
+      // 7. Real daily activity events per day (for deriving coding time)
+      Activity.aggregate([
+        {
+          $match: {
+            owner: new mongoose.Types.ObjectId(owner),
+            createdAt: { $gte: sevenDaysAgo },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              $dateToString: { format: '%Y-%m-%d', date: '$createdAt' },
+            },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+        { $project: { _id: 0, date: '$_id', count: 1 } },
+      ]),
     ])
 
     // Normalise status breakdown
@@ -185,31 +209,66 @@ export async function getAnalyticsSummary(req, res, next) {
       })
     }
 
-    // Coding time simulation (realistic developer daily hours log)
+    // Coding time derived from real activity events per day
+    // Each activity event ≈ 15 min of active work (rough but real)
+    const MINS_PER_EVENT = 15
     const codingTime = []
     const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-    const todayIndex = now.getDay() // 0 = Sun, 1 = Mon
-    for (let i = 0; i < 7; i++) {
-      const dayName = weekDays[i]
-      // Generate realistic coding hours between 3 and 7.5 hrs, slightly lower on weekends
-      const baseHours = (dayName === 'Sat' || dayName === 'Sun') ? 1.5 : 4.5
-      const offset = (owner.toString().charCodeAt(i % 10) % 20) / 5 // user specific deterministic variation
-      codingTime.push({
-        day: dayName,
-        hours: Math.round((baseHours + offset) * 10) / 10
-      })
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now)
+      d.setDate(d.getDate() - i)
+      const dateStr = d.toLocaleDateString('en-CA')
+      const dayName = weekDays[(d.getDay() + 6) % 7] // convert 0=Sun to Mon-indexed
+      const match = activityByDay.find(a => a.date === dateStr)
+      const hours = match ? Math.min(Math.round((match.count * MINS_PER_EVENT) / 60 * 10) / 10, 12) : 0
+      codingTime.push({ day: dayName, hours })
     }
 
-    // GitHub Commits activity simulation
+    // GitHub commits: fetch real data if user has a GitHub token, else zeros
+    const dbUser = await User.findById(owner).select('+githubToken')
     const githubCommits = []
-    for (let i = 0; i < 7; i++) {
-      const dayName = weekDays[i]
-      const baseCommits = (dayName === 'Sat' || dayName === 'Sun') ? 1 : 4
-      const offset = owner.toString().charCodeAt((i + 3) % 10) % 6
-      githubCommits.push({
-        day: dayName,
-        commits: baseCommits + offset
-      })
+    if (dbUser?.githubToken) {
+      try {
+        const gqlRes = await axios.post(
+          'https://api.github.com/graphql',
+          {
+            query: `query {
+              viewer {
+                contributionsCollection {
+                  contributionCalendar {
+                    weeks {
+                      contributionDays {
+                        date
+                        contributionCount
+                      }
+                    }
+                  }
+                }
+              }
+            }`
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${dbUser.githubToken}`,
+              Accept: 'application/json',
+              'User-Agent': 'DevFlow-App'
+            }
+          }
+        )
+        const allDays = gqlRes.data?.data?.viewer?.contributionsCollection?.contributionCalendar?.weeks?.flatMap(w => w.contributionDays) || []
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(now)
+          d.setDate(d.getDate() - i)
+          const dateStr = d.toLocaleDateString('en-CA')
+          const dayName = weekDays[(d.getDay() + 6) % 7]
+          const match = allDays.find(day => day.date === dateStr)
+          githubCommits.push({ day: dayName, commits: match ? match.contributionCount : 0 })
+        }
+      } catch {
+        weekDays.forEach(day => githubCommits.push({ day, commits: 0 }))
+      }
+    } else {
+      weekDays.forEach(day => githubCommits.push({ day, commits: 0 }))
     }
 
     // AI Usage details

@@ -205,6 +205,15 @@ export async function updateProject(req, res, next) {
 
     await project.save()
 
+    recordActivity({
+      owner,
+      entityType: 'project',
+      entityId: project._id,
+      action: 'project_updated',
+      summary: `Updated project "${project.name}"`,
+      meta: { name: project.name, icon: project.icon },
+    })
+
     const populatedProject = await Project.findById(project._id).populate('teamMembers', 'name email avatarUrl')
     const responseObj = populatedProject.toObject()
     responseObj.id = populatedProject._id.toString()
@@ -226,6 +235,15 @@ export async function deleteProject(req, res, next) {
     if (!project) {
       return res.status(404).json({ message: 'Project not found.' })
     }
+
+    recordActivity({
+      owner,
+      entityType: 'project',
+      entityId: id,
+      action: 'project_deleted',
+      summary: `Deleted project "${project.name}"`,
+      meta: { name: project.name },
+    })
 
     return res.status(204).send()
   } catch (error) {

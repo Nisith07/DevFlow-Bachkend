@@ -2,10 +2,12 @@ import mongoose from 'mongoose'
 import { GoogleGenAI } from '@google/genai'
 import AIConversation from './ai.model.js'
 import AICopilotHistory from './copilot.model.js'
+import ProjectMemory from './project-memory.model.js'
 import Task from '../tasks/task.model.js'
 import Project from '../projects/project.model.js'
 import PlannerEntry from '../planner/planner.model.js'
 import Note from '../notes/note.model.js'
+import Issue from '../issues/issue.model.js'
 import { recordActivity } from '../activity/activity.controller.js'
 
 // Initialize Gen AI client if API key is present
@@ -276,7 +278,7 @@ Ensure your response is in markdown. If actions are generated, write the action 
         ]
 
         const response = await aiClient.models.generateContent({
-          model: 'gemini-3.1-flash-lite',
+          model: 'gemini-2.0-flash-lite',
           contents,
           config: {
             systemInstruction,
@@ -456,7 +458,7 @@ export async function runCopilotTool(req, res, next) {
       entityType: 'ai_history',
       entityId: historyRow._id,
       action: 'ai_run',
-      summary: `Used AI Copilot: ${capability.replace('_', ' ')}`,
+      summary: `Used AI Copilot: ${capability.replace(/_/g, ' ')}`,
       meta: { capability }
     })
 
@@ -499,6 +501,222 @@ export async function deleteCopilotHistory(req, res, next) {
       return res.status(404).json({ message: 'History record not found.' })
     }
     return res.status(204).send()
+  } catch (error) {
+    return next(error)
+  }
+}
+
+// ── AI Project Memory ──────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/v1/ai/projects/:projectId/memory
+ * Returns the stored AI memory for a project (or null if not yet generated).
+ */
+export async function getProjectMemory(req, res, next) {
+  try {
+    const owner = req.user._id
+    const { projectId } = req.params
+
+    const memory = await ProjectMemory.findOne({ owner, project: projectId }).lean()
+    return res.json({ data: memory || null })
+  } catch (error) {
+    return next(error)
+  }
+}
+
+/**
+ * POST /api/v1/ai/projects/:projectId/memory/refresh
+ * Triggers Gemini to analyze the project and generate a fresh memory summary.
+ */
+export async function refreshProjectMemory(req, res, next) {
+  try {
+    const owner = req.user._id
+    const { projectId } = req.params
+
+    // Verify ownership
+    const project = await Project.findOne({ _id: projectId, owner }).lean()
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found.' })
+    }
+
+    // Gather all project context
+    const [tasks, notes, issues] = await Promise.all([
+      Task.find({ owner, project: projectId }).lean(),
+      Note.find({ owner, project: projectId }).lean(),
+      Issue.find({ owner, project: projectId }).lean(),
+    ])
+
+    const todoCount = tasks.filter(t => t.status === 'todo').length
+    const inProgressCount = tasks.filter(t => t.status === 'in_progress').length
+    const doneCount = tasks.filter(t => t.status === 'done').length
+    const overdueCount = tasks.filter(t => t.dueDate && t.status !== 'done' && new Date(t.dueDate) < new Date()).length
+    const openIssues = issues.filter(i => i.status === 'open').length
+
+    const projectContext = [
+      `# Project: ${project.name}`,
+      `Status: ${project.status} | Priority: ${project.priority}`,
+      `Description: ${project.description || 'None'}`,
+      `Tech Stack: ${(project.techStack || []).join(', ') || 'Not specified'}`,
+      `GitHub Repo: ${project.githubRepo || 'Not linked'}`,
+      ``,
+      `## Tasks (${tasks.length} total)`,
+      `- Todo: ${todoCount} | In Progress: ${inProgressCount} | Done: ${doneCount} | Overdue: ${overdueCount}`,
+      tasks.slice(0, 20).map(t => `  - [${t.status}] "${t.title}" (${t.priority} priority${t.dueDate ? ', due ' + new Date(t.dueDate).toLocaleDateString() : ''})`).join('\n'),
+      ``,
+      `## Open Issues (${openIssues})`,
+      issues.filter(i => i.status === 'open').slice(0, 10).map(i => `  - [${i.type}] "${i.title}" (${i.priority})`).join('\n') || '  None',
+      ``,
+      `## Notes (${notes.length})`,
+      notes.slice(0, 5).map(n => `  - "${n.title}" [${(n.tags || []).join(', ')}]`).join('\n') || '  None',
+    ].join('\n')
+
+    let summaryText = ''
+    let keyInsights = []
+
+    if (aiClient) {
+      try {
+        const systemInstruction = `You are a senior project manager AI. Analyze this software project and provide:
+1. A concise 2-3 paragraph status summary (what's going well, what's at risk, what's next)
+2. A JSON array of exactly 3-5 key insights in this format at the END of your response:
+[INSIGHTS_JSON]
+["Insight 1", "Insight 2", "Insight 3"]
+[/INSIGHTS_JSON]
+
+Be specific, actionable, and technical. Reference actual task names and issues.`
+
+        const response = await aiClient.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: projectContext,
+          config: { systemInstruction }
+        })
+
+        const raw = response.text || ''
+        // Extract insights JSON
+        const insightsMatch = raw.match(/\[INSIGHTS_JSON\]([\s\S]*?)\[\/INSIGHTS_JSON\]/)
+        if (insightsMatch) {
+          try {
+            keyInsights = JSON.parse(insightsMatch[1].trim())
+          } catch { keyInsights = [] }
+        }
+        summaryText = raw.replace(/\[INSIGHTS_JSON\][\s\S]*?\[\/INSIGHTS_JSON\]/g, '').trim()
+      } catch (err) {
+        console.error('[AI Memory] Generation error:', err.message)
+        summaryText = `Project "${project.name}" has ${tasks.length} tasks (${doneCount} done, ${inProgressCount} in progress, ${todoCount} todo). ${overdueCount > 0 ? `⚠️ ${overdueCount} overdue tasks need attention.` : 'No overdue tasks.'}`
+        keyInsights = [
+          `${doneCount}/${tasks.length} tasks completed (${tasks.length > 0 ? Math.round(doneCount/tasks.length*100) : 0}% completion)`,
+          overdueCount > 0 ? `${overdueCount} task(s) are overdue` : 'All tasks on schedule',
+          `${openIssues} open issue(s) to address`,
+        ].filter(Boolean)
+      }
+    } else {
+      summaryText = `Project "${project.name}" has ${tasks.length} tasks (${doneCount} done). AI key unavailable for full analysis.`
+      keyInsights = [`${doneCount}/${tasks.length} tasks done`, `${openIssues} open issues`]
+    }
+
+    // Upsert the memory document
+    const memory = await ProjectMemory.findOneAndUpdate(
+      { owner, project: projectId },
+      {
+        summary: summaryText,
+        keyInsights,
+        contextSnapshot: {
+          taskCount: tasks.length,
+          completedCount: doneCount,
+          noteCount: notes.length,
+          issueCount: issues.length,
+        },
+        refreshedAt: new Date(),
+      },
+      { upsert: true, new: true }
+    )
+
+    return res.json({ data: memory })
+  } catch (error) {
+    return next(error)
+  }
+}
+
+// ── Daily Morning Briefing ────────────────────────────────────────────────────
+
+/**
+ * POST /api/v1/ai/briefing
+ * Generates a personalized daily briefing using today's planner,
+ * overdue tasks, active projects, and recent activity context.
+ */
+export async function generateDailyBriefing(req, res, next) {
+  try {
+    const owner = req.user._id
+    const now = new Date()
+    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0)
+    const todayEnd = new Date(now); todayEnd.setHours(23, 59, 59, 999)
+
+    const [todayPlanner, overdueTasks, activeProjects, recentTasks] = await Promise.all([
+      PlannerEntry.find({ owner, date: { $gte: todayStart, $lte: todayEnd } }).lean(),
+      Task.find({
+        owner,
+        status: { $nin: ['done', 'cancelled'] },
+        dueDate: { $lt: now },
+      }).sort({ dueDate: 1 }).limit(5).lean(),
+      Project.find({ owner, status: 'active' }).lean(),
+      Task.find({ owner, $or: [{ isToday: true }, { dueDate: { $gte: todayStart, $lte: todayEnd } }] }).lean(),
+    ])
+
+    const hour = now.getHours()
+    const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+    const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+
+    const briefingContext = [
+      `Today is ${dateStr}.`,
+      `Planner has ${todayPlanner.length} time block(s): ${todayPlanner.map(p => `"${p.title}" (${p.startTime}-${p.endTime})`).join(', ') || 'none scheduled'}`,
+      `Today's tasks: ${recentTasks.length} task(s) pinned or due today`,
+      `Overdue tasks (${overdueTasks.length}): ${overdueTasks.map(t => `"${t.title}"`).join(', ') || 'none'}`,
+      `Active projects: ${activeProjects.map(p => `"${p.name}"`).join(', ') || 'none'}`,
+    ].join('\n')
+
+    let briefingText = ''
+    if (aiClient) {
+      try {
+        const systemInstruction = `You are a smart developer productivity assistant. Generate a concise, encouraging daily briefing in 3-4 short paragraphs:
+1. A warm greeting for ${greeting}
+2. What to focus on today (based on planner + priority tasks)
+3. Heads up on overdue items (if any) — be direct, not alarming
+4. One motivational insight about the active projects
+Use markdown. Keep it under 200 words. Be specific and use the actual task/project names.`
+
+        const response = await aiClient.models.generateContent({
+          model: 'gemini-2.0-flash-lite',
+          contents: briefingContext,
+          config: { systemInstruction }
+        })
+        briefingText = response.text || ''
+      } catch (err) {
+        console.error('[AI Briefing] Error:', err.message)
+      }
+    }
+
+    // Fallback: structured briefing without AI
+    if (!briefingText) {
+      briefingText = [
+        `## ${greeting}! — ${dateStr}`,
+        ``,
+        `**Today's focus:** You have ${recentTasks.length} task(s) scheduled for today${todayPlanner.length > 0 ? ` and ${todayPlanner.length} planner block(s)` : ''}.`,
+        overdueTasks.length > 0 ? `\n**⚠️ Overdue:** ${overdueTasks.length} task(s) need attention: ${overdueTasks.slice(0,3).map(t => `"${t.title}"`).join(', ')}.` : '',
+        activeProjects.length > 0 ? `\n**Active projects:** ${activeProjects.map(p => `"${p.name}"`).join(', ')} are in progress. Keep the momentum going!` : '',
+      ].filter(Boolean).join('\n')
+    }
+
+    return res.json({
+      data: {
+        briefing: briefingText,
+        meta: {
+          todayTaskCount: recentTasks.length,
+          plannerBlockCount: todayPlanner.length,
+          overdueCount: overdueTasks.length,
+          activeProjectCount: activeProjects.length,
+          generatedAt: now,
+        }
+      }
+    })
   } catch (error) {
     return next(error)
   }

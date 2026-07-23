@@ -1,6 +1,7 @@
 import Note from './note.model.js'
 import Project from '../projects/project.model.js'
 import Task from '../tasks/task.model.js'
+import { recordActivity } from '../activity/activity.controller.js'
 
 export async function getNotes(req, res, next) {
   try {
@@ -79,6 +80,15 @@ export async function createNote(req, res, next) {
     obj.id = populated._id.toString()
     if (obj.project) obj.project.id = populated.project._id.toString()
     if (obj.task) obj.task.id = populated.task._id.toString()
+
+    recordActivity({
+      owner,
+      entityType: 'note',
+      entityId: note._id,
+      action: 'note_created',
+      summary: `Created note "${note.title}"`,
+      meta: { title: note.title, folder: note.folder },
+    })
 
     return res.status(201).json({ data: obj })
   } catch (error) {
@@ -160,6 +170,15 @@ export async function updateNote(req, res, next) {
     if (obj.project) obj.project.id = populated.project._id.toString()
     if (obj.task) obj.task.id = populated.task._id.toString()
 
+    recordActivity({
+      owner,
+      entityType: 'note',
+      entityId: note._id,
+      action: 'note_updated',
+      summary: `Updated note "${note.title}"`,
+      meta: { title: note.title },
+    })
+
     return res.json({ data: obj })
   } catch (error) {
     return next(error)
@@ -175,6 +194,15 @@ export async function deleteNote(req, res, next) {
     if (!note) {
       return res.status(404).json({ message: 'Note not found.' })
     }
+
+    recordActivity({
+      owner,
+      entityType: 'note',
+      entityId: id,
+      action: 'note_deleted',
+      summary: `Deleted note "${note.title}"`,
+      meta: { title: note.title },
+    })
 
     return res.status(204).send()
   } catch (error) {
