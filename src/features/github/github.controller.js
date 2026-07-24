@@ -30,6 +30,7 @@ export function startOAuth(req, res) {
     redirect_uri: process.env.GITHUB_CALLBACK_URL,
     scope: 'repo read:user',
     state,
+    allow_signup: 'true',
     prompt: 'consent',
   })
 
