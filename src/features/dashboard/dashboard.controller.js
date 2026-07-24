@@ -1,6 +1,7 @@
 import axios from 'axios'
 import Task from '../tasks/task.model.js'
 import User from '../../models/User.js'
+import Activity from '../activity/activity.model.js'
 
 async function getGitHubContributions(token) {
   try {
@@ -42,33 +43,56 @@ async function getGitHubContributions(token) {
 }
 
 /**
- * Compute consecutive-day streak from an array of completedAt dates.
+ * Compute consecutive-day streak from an array of activity & login dates.
  * A streak is the number of consecutive calendar days (counting back from
- * today) on which at least one task was completed.
+ * today or yesterday) on which the user was active in DevFlow.
  *
- * @param {Date[]} dates - raw completedAt values, unsorted
+ * @param {Date[]} dates - raw timestamp values
  * @returns {number}
  */
 function computeStreak(dates) {
-  if (!dates.length) return 0
+  if (!dates || !dates.length) return 0
 
-  // Unique calendar days (local midnight YYYY-MM-DD strings)
-  const daySet = new Set(
-    dates.map((d) => new Date(d).toLocaleDateString('en-CA')) // 'en-CA' → YYYY-MM-DD
-  )
+  const toDayString = (d) => {
+    if (!d) return null
+    const dt = new Date(d)
+    if (isNaN(dt.getTime())) return null
+    const y = dt.getFullYear()
+    const m = String(dt.getMonth() + 1).padStart(2, '0')
+    const day = String(dt.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
 
-  let streak = 0
+  const daySet = new Set()
+  dates.forEach((d) => {
+    const s = toDayString(d)
+    if (s) daySet.add(s)
+  })
+
+  if (daySet.size === 0) return 0
+
   const cursor = new Date()
   cursor.setHours(0, 0, 0, 0)
 
-  // If nothing completed today, start counting from yesterday
-  const todayKey = cursor.toLocaleDateString('en-CA')
-  if (!daySet.has(todayKey)) {
+  const todayStr = toDayString(cursor)
+
+  const yesterday = new Date(cursor)
+  yesterday.setDate(yesterday.getDate() - 1)
+  const yesterdayStr = toDayString(yesterday)
+
+  // If user wasn't active today OR yesterday, streak is broken (0)
+  if (!daySet.has(todayStr) && !daySet.has(yesterdayStr)) {
+    return 0
+  }
+
+  // If user hasn't performed activity today yet, start counting from yesterday
+  if (!daySet.has(todayStr)) {
     cursor.setDate(cursor.getDate() - 1)
   }
 
+  let streak = 0
   while (true) {
-    const key = cursor.toLocaleDateString('en-CA')
+    const key = toDayString(cursor)
     if (!daySet.has(key)) break
     streak++
     cursor.setDate(cursor.getDate() - 1)
@@ -124,11 +148,14 @@ export async function getDashboardSummary(req, res, next) {
 
     const yesterdayEnd = new Date(todayStart - 1) // 1ms before today midnight
 
+    const sixtyDaysAgo = new Date(Date.now() - 60 * 86400000)
+
     // --- Parallel queries ---
     const [
       todayTasks,
       yesterdayCompleted,
-      streakDates,
+      userActivities,
+      taskDates,
       allTasks,
     ] = await Promise.all([
       // Today: tasks pinned with isToday flag OR due today
@@ -147,18 +174,39 @@ export async function getDashboardSummary(req, res, next) {
         completedAt: { $gte: yesterdayStart, $lte: yesterdayEnd },
       }).sort({ completedAt: -1 }).lean(),
 
-      // Last 60 days of completedAt dates for streak calc
+      // Last 60 days of activity logs for streak calc
+      Activity.find(
+        { owner, createdAt: { $gte: sixtyDaysAgo } },
+        { createdAt: 1 }
+      ).lean(),
+
+      // Last 60 days of task timestamps for streak calc
       Task.find(
-        { owner, status: 'done', completedAt: { $gte: new Date(Date.now() - 60 * 86400000) } },
-        { completedAt: 1 }
+        { owner, $or: [{ completedAt: { $gte: sixtyDaysAgo } }, { createdAt: { $gte: sixtyDaysAgo } }, { updatedAt: { $gte: sixtyDaysAgo } }] },
+        { completedAt: 1, createdAt: 1, updatedAt: 1 }
       ).lean(),
 
       // Overall task stats
       Task.find({ owner }, { status: 1, dueDate: 1 }).lean(),
     ])
 
-    // --- Streak ---
-    const streak = computeStreak(streakDates.map((t) => t.completedAt))
+    // Update lastLoginAt if user is visiting dashboard today
+    if (dbUser) {
+      dbUser.lastLoginAt = now
+      await dbUser.save().catch(() => {})
+    }
+
+    // --- Streak calculation across logins, activities, and tasks ---
+    const allActivityDates = [
+      now,
+      dbUser?.lastLoginAt,
+      dbUser?.createdAt,
+      dbUser?.updatedAt,
+      ...userActivities.map((a) => a.createdAt),
+      ...taskDates.flatMap((t) => [t.completedAt, t.createdAt, t.updatedAt]),
+    ].filter(Boolean)
+
+    const streak = computeStreak(allActivityDates)
 
     // --- Stats ---
     const totalTasks   = allTasks.length
