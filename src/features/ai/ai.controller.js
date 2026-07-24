@@ -721,3 +721,104 @@ Use markdown. Keep it under 200 words. Be specific and use the actual task/proje
     return next(error)
   }
 }
+
+/**
+ * Generate an AI-powered engineering daily standup report.
+ * Compiles completed tasks, in-progress items, and blockers.
+ */
+export async function generateStandupReport(req, res, next) {
+  try {
+    const owner = req.user._id
+    const now = new Date()
+    const twoDaysAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000)
+
+    const [completedTasks, inProgressTasks, todayTasks, overdueTasks, openIssues] = await Promise.all([
+      Task.find({ owner, status: 'done', completedAt: { $gte: twoDaysAgo } }).sort({ completedAt: -1 }).limit(10).lean(),
+      Task.find({ owner, status: 'in-progress' }).sort({ updatedAt: -1 }).limit(10).lean(),
+      Task.find({ owner, isToday: true, status: { $ne: 'done' } }).limit(10).lean(),
+      Task.find({ owner, status: { $nin: ['done', 'cancelled'] }, dueDate: { $lt: now } }).limit(5).lean(),
+      Issue.find({ owner, status: { $ne: 'closed' } }).limit(5).lean(),
+    ])
+
+    const dateStr = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+
+    const contextPayload = [
+      `Standup Date: ${dateStr}`,
+      `Completed Recently (${completedTasks.length}): ${completedTasks.map(t => `"${t.title}"`).join(', ') || 'None'}`,
+      `Currently In-Progress (${inProgressTasks.length}): ${inProgressTasks.map(t => `"${t.title}"`).join(', ') || 'None'}`,
+      `Pinned / Today Tasks (${todayTasks.length}): ${todayTasks.map(t => `"${t.title}"`).join(', ') || 'None'}`,
+      `Overdue Tasks / Blockers (${overdueTasks.length}): ${overdueTasks.map(t => `"${t.title}"`).join(', ') || 'None'}`,
+      `Open Issues (${openIssues.length}): ${openIssues.map(i => `"${i.title}"`).join(', ') || 'None'}`,
+    ].join('\n')
+
+    let standupText = ''
+
+    if (aiClient) {
+      try {
+        const systemInstruction = `You are an expert Agile / Developer Productivity AI assistant. Generate a clean, concise, 3-section daily engineering standup report in Markdown:
+### 🟢 Completed Yesterday / Recently
+- List bullet points of completed tasks (or state "No tasks completed recently" if none).
+
+### 🟡 Working On Today
+- List bullet points of in-progress or planned tasks for today.
+
+### 🔴 Blockers & Open Issues
+- List any overdue tasks, open bug issues, or blockers (or state "No blockers" if none).
+
+Keep the language professional, action-oriented, and clear.`
+
+        const response = await aiClient.models.generateContent({
+          model: 'gemini-2.0-flash-lite',
+          contents: contextPayload,
+          config: { systemInstruction }
+        })
+        standupText = response.text || ''
+      } catch (err) {
+        console.error('[AI Standup] Gemini Error:', err.message)
+      }
+    }
+
+    if (!standupText) {
+      const completedList = completedTasks.length > 0
+        ? completedTasks.map(t => `- Completed: **${t.title}**`).join('\n')
+        : '- Worked on core repository items and workspace updates'
+
+      const todayList = [...inProgressTasks, ...todayTasks].length > 0
+        ? Array.from(new Set([...inProgressTasks, ...todayTasks].map(t => t.title))).map(title => `- Working on **${title}**`).join('\n')
+        : '- Continue active project development and task execution'
+
+      const blockerList = overdueTasks.length > 0 || openIssues.length > 0
+        ? [...overdueTasks.map(t => `- ⚠️ Overdue task: **${t.title}**`), ...openIssues.map(i => `- 🐛 Open issue: **${i.title}**`)].join('\n')
+        : '- No current blockers'
+
+      standupText = [
+        `## 🚀 Daily Engineering Standup — ${dateStr}`,
+        ``,
+        `### 🟢 Completed Yesterday / Recently`,
+        completedList,
+        ``,
+        `### 🟡 Working On Today`,
+        todayList,
+        ``,
+        `### 🔴 Blockers & Open Issues`,
+        blockerList,
+      ].join('\n')
+    }
+
+    await recordActivity(owner, 'ai', 'standup_generated', 'ai_run', 'Generated daily AI standup report', { date: dateStr }).catch(() => {})
+
+    return res.json({
+      data: {
+        standup: standupText,
+        meta: {
+          completedCount: completedTasks.length,
+          inProgressCount: inProgressTasks.length,
+          blockerCount: overdueTasks.length + openIssues.length,
+          generatedAt: now,
+        }
+      }
+    })
+  } catch (error) {
+    return next(error)
+  }
+}

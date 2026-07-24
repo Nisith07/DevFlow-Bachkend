@@ -13,6 +13,7 @@ import {
   getProjectMemory,
   refreshProjectMemory,
   generateDailyBriefing,
+  generateStandupReport,
 } from './ai.controller.js'
 import { requireAuth } from '../../middleware/requireAuth.js'
 
@@ -20,8 +21,9 @@ const router = Router()
 
 router.use(requireAuth)
 
-// Daily briefing
+// Daily briefing & Standup
 router.post('/briefing', generateDailyBriefing)
+router.post('/standup', generateStandupReport)
 
 // AI Task estimate
 router.post('/estimate-task', estimateTask)
