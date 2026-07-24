@@ -23,6 +23,7 @@ import integrationRoutes from './features/integrations/integration.routes.js'
 import searchRoutes from './features/search/search.routes.js'
 import deploymentRoutes from './features/deployments/deployment.routes.js'
 import focusRoutes from './features/focus/focus.routes.js'
+import dataRoutes from './features/settings/data.routes.js'
 import { requestId } from './middleware/requestId.js'
 import { notFound } from './middleware/notFound.js'
 import { errorHandler } from './middleware/errorHandler.js'
@@ -79,6 +80,7 @@ export function createApp(googleEnabled) {
   app.use('/api/v1/integrations', integrationRoutes)
   app.use('/api/v1/deployments', deploymentRoutes)
   app.use('/api/v1/focus', focusRoutes)
+  app.use('/api/v1/data', dataRoutes)
 
   app.get("/", (req, res) => {
     res.json({
