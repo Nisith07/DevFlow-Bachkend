@@ -25,7 +25,7 @@ router.post('/signup', async (req, res, next) => {
     if (await User.exists({ email })) return res.status(409).json({ message: 'An account already exists for this email.' })
 
     const passwordHash = await bcrypt.hash(password, 12)
-    const user = await User.create({ name, email, password: passwordHash, providers: ['password'], lastLoginAt: new Date() })
+    const user = await User.create({ name, email, password: passwordHash, providers: ['password'], lastLoginAt: new Date(), onboardingCompleted: false })
     return res.status(201).json({
       success: true,
       message: 'Account created successfully. Please sign in.',
@@ -173,5 +173,41 @@ router.get('/users', requireAuth, async (req, res, next) => {
 })
 
 router.post('/logout', (req, res) => res.clearCookie('devflow_token', cookieOptions).status(204).send())
+
+/**
+ * Save onboarding data and mark the user as onboarded.
+ * PATCH /api/v1/auth/onboarding
+ */
+router.patch('/onboarding', requireAuth, async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user._id)
+    if (!user) return res.status(404).json({ message: 'User not found.' })
+
+    const {
+      role, techStack, connectedTools, mainProject,
+      goals, schedule, focusSettings, aiPreferences, dashboardWidgets
+    } = req.body
+
+    if (!user.onboarding) user.onboarding = {}
+
+    if (role !== undefined) user.onboarding.role = role
+    if (Array.isArray(techStack)) user.onboarding.techStack = techStack
+    if (Array.isArray(connectedTools)) user.onboarding.connectedTools = connectedTools
+    if (mainProject && typeof mainProject === 'object') user.onboarding.mainProject = mainProject
+    if (Array.isArray(goals)) user.onboarding.goals = goals
+    if (schedule && typeof schedule === 'object') user.onboarding.schedule = schedule
+    if (focusSettings && typeof focusSettings === 'object') user.onboarding.focusSettings = focusSettings
+    if (aiPreferences && typeof aiPreferences === 'object') user.onboarding.aiPreferences = aiPreferences
+    if (Array.isArray(dashboardWidgets)) user.onboarding.dashboardWidgets = dashboardWidgets
+
+    user.onboardingCompleted = true
+    user.markModified('onboarding')
+    await user.save()
+
+    return res.json({ user: user.toSafeObject() })
+  } catch (error) {
+    return next(error)
+  }
+})
 
 export default router

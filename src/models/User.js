@@ -12,6 +12,39 @@ const userSchema = new mongoose.Schema(
     githubToken: { type: String, select: false },
     bio: { type: String, default: '' },
     username: { type: String, default: '' },
+
+    /** undefined = existing user (treated as completed); false = new user pending onboarding */
+    onboardingCompleted: { type: Boolean },
+
+    /** Stores all answers collected during the onboarding flow */
+    onboarding: {
+      role: { type: String, default: '' },
+      techStack: { type: [String], default: [] },
+      connectedTools: { type: [String], default: [] },
+      mainProject: {
+        name: { type: String, default: '' },
+        description: { type: String, default: '' },
+        framework: { type: String, default: '' },
+        repository: { type: String, default: '' },
+      },
+      goals: { type: [String], default: [] },
+      schedule: {
+        preferredTime: { type: String, default: '' },
+        hoursPerDay: { type: Number, default: 4 },
+        morningBriefing: { type: Boolean, default: true },
+      },
+      focusSettings: {
+        pomodoroDuration: { type: Number, default: 25 },
+        autoStartNext: { type: Boolean, default: false },
+      },
+      aiPreferences: {
+        experience: { type: String, default: '' },
+        tone: { type: String, default: '' },
+        helpStyle: { type: [String], default: [] },
+      },
+      dashboardWidgets: { type: [String], default: [] },
+    },
+
     settings: {
       theme: { type: String, default: 'dark' },
       notifications: {
@@ -41,6 +74,8 @@ userSchema.methods.toSafeObject = function toSafeObject() {
     createdAt: this.createdAt,
     bio: this.bio || '',
     username: this.username || '',
+    onboardingCompleted: this.onboardingCompleted,
+    onboarding: this.onboarding || {},
     settings: this.settings || {
       theme: 'dark',
       notifications: { email: true, sms: false, sound: true },

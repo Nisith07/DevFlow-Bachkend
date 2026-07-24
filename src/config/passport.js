@@ -28,6 +28,7 @@ export function configurePassport(passport) {
               avatarUrl: profile.photos?.[0]?.value || '',
               providers: ['google'],
               lastLoginAt: new Date(),
+              onboardingCompleted: false,
             })
           } else {
             user.googleId = profile.id
